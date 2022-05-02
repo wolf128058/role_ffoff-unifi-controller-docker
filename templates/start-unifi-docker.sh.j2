@@ -1,4 +1,4 @@
 #!/bin/bash
 #
-# start docker container for unify-stuff
+# start docker container for unifi-stuff
 sudo docker run --init -d --restart=always -p 8080:8080 -p 8443:8443 -p 3478:3478/udp -p 10001:10001/udp -e TZ='Europe/Berlin' -v ~/unifi:/unifi --name unifi jacobalberty/unifi:latest
