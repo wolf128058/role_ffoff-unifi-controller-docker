@@ -1,4 +1,13 @@
 ---
+- name: Repair Docker Apt-Source before any apt task
+  become: yes
+  copy:
+    dest: /etc/apt/sources.list.d/100-ubnt-docker.list
+    content: "deb [arch={{ unifi_docker_apt_arch }} signed-by={{ unifi_docker_apt_keyring_path }}] https://download.docker.com/linux/ubuntu {{ unifi_docker_apt_release }} stable\n"
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: Install prerequisite tools for docker
   become: yes
   apt:
@@ -8,24 +17,52 @@
       - apt-transport-https
       - ca-certificates
       - curl
-      - gnupg-agent
+      - gnupg
       - lsb-release
       - software-properties-common
     state: present
 
-- name: Add an Apt signing key for docker
+- name: Ensure Docker Apt keyring directory exists
   become: yes
-  apt_key:
-    id: 0EBFCD88
-    url:  https://download.docker.com/linux/ubuntu/gpg
-    state: present
+  file:
+    path: "{{ unifi_docker_apt_keyring_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
 
-- name: Add Docker Apt-Source
+- name: Download Docker Apt signing key into keyring
   become: yes
-  apt_repository:
-    repo: deb [arch=$(dpkg --print-architecture)] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable
-    state: present
-    filename: 100-ubnt-docker
+  get_url:
+    url: "{{ unifi_docker_apt_key_url }}"
+    dest: "{{ unifi_docker_apt_keyring_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Remove duplicate Docker Apt source in .sources format
+  become: yes
+  file:
+    path: /etc/apt/sources.list.d/100-ubnt-docker.sources
+    state: absent
+
+- name: Write Docker Apt-Source
+  become: yes
+  copy:
+    dest: /etc/apt/sources.list.d/100-ubnt-docker.list
+    content: "deb [arch={{ unifi_docker_apt_arch }} signed-by={{ unifi_docker_apt_keyring_path }}] https://download.docker.com/linux/ubuntu {{ unifi_docker_apt_release }} stable\n"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Remove legacy Docker Apt key from trusted.gpg
+  become: yes
+  command: apt-key del 0EBFCD88
+  register: docker_apt_key_remove
+  changed_when: docker_apt_key_remove.rc == 0
+  failed_when:
+    - docker_apt_key_remove.rc != 0
+    - "'not found' not in docker_apt_key_remove.stderr"
 
 - name: Install docker
   become: yes
@@ -38,11 +75,75 @@
       - containerd.io
     state: present
 
+- name: Ensure docker service is enabled and running
+  become: yes
+  systemd:
+    name: docker
+    enabled: yes
+    state: started
+
+- name: Ensure Unifi data directory exists
+  become: yes
+  file:
+    path: "{{ unifi_docker_data_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Copy Docker-Container-Startup-Script for Unifi-Controller
   become: yes
   template:
     src: 'start-unifi-docker.sh.j2'
     dest: "{{ ansible_user_dir }}/start-unifi-docker.sh"
     owner: "{{ ansible_user_id }}"
-    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_id }}"
     mode: u=rwxr,g=rx,o=x
+
+- name: Pull pinned Unifi image
+  become: yes
+  command: docker pull {{ unifi_docker_image }}
+  register: unifi_docker_pull
+  changed_when: "'Downloaded newer image' in unifi_docker_pull.stdout or 'Pull complete' in unifi_docker_pull.stdout"
+
+- name: Inspect managed Unifi container
+  become: yes
+  command: docker inspect {{ unifi_docker_container_name }} --format '{{ "{{" }}.Config.Image{{ "}}" }} {{ "{{" }}.State.Status{{ "}}" }}'
+  register: unifi_container_state
+  failed_when: false
+  changed_when: false
+
+- name: Remove legacy Unifi containers
+  become: yes
+  shell: |
+    ids="$(docker ps -aq --filter 'name=^/{{ item }}$')"
+    if [ -n "${ids}" ]; then
+      docker rm -f ${ids}
+      echo removed
+    fi
+  args:
+    executable: /bin/bash
+  register: unifi_legacy_remove
+  changed_when: "'removed' in unifi_legacy_remove.stdout"
+  loop: "{{ unifi_docker_legacy_container_names }}"
+
+- name: Recreate pinned Unifi container when needed
+  become: yes
+  shell: |
+    docker rm -f {{ unifi_docker_container_name }} >/dev/null 2>&1 || true
+    {{ ansible_user_dir }}/start-unifi-docker.sh
+  args:
+    executable: /bin/bash
+  when:
+    - unifi_container_state.rc != 0
+      or (unifi_docker_image not in unifi_container_state.stdout)
+      or ('running' not in unifi_container_state.stdout)
+      or (unifi_legacy_remove.results | selectattr('stdout', 'search', 'removed') | list | length > 0)
+
+- name: Wait for Unifi HTTPS port
+  become: yes
+  wait_for:
+    host: 127.0.0.1
+    port: 8443
+    delay: 5
+    timeout: 300

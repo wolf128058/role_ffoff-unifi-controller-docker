@@ -1,0 +1,20 @@
+---
+# Pin the target version explicitly so upgrades stay reproducible.
+unifi_docker_image_repo: "jacobalberty/unifi"
+unifi_docker_image_tag: "v10.0.162"
+unifi_docker_image: "{{ unifi_docker_image_repo }}:{{ unifi_docker_image_tag }}"
+
+# Rollback note:
+# The last known-good tag before the current major-version upgrade.
+unifi_docker_previous_known_good_tag: "v9.5.21"
+
+unifi_docker_container_name: "unifi"
+unifi_docker_legacy_container_names:
+  - "unifi_alt_8028"
+unifi_docker_data_dir: "/root/unifi"
+unifi_docker_timezone: "Europe/Berlin"
+unifi_docker_apt_arch: "amd64"
+unifi_docker_apt_release: "{{ ansible_distribution_release }}"
+unifi_docker_apt_keyring_dir: "/etc/apt/keyrings"
+unifi_docker_apt_keyring_path: "{{ unifi_docker_apt_keyring_dir }}/docker.asc"
+unifi_docker_apt_key_url: "https://download.docker.com/linux/ubuntu/gpg"
