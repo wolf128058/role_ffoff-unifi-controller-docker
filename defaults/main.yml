@@ -13,6 +13,10 @@ unifi_docker_legacy_container_names:
   - "unifi_alt_8028"
 unifi_docker_data_dir: "/root/unifi"
 unifi_docker_timezone: "Europe/Berlin"
+
+# Host IPv4 addresses the published ports (8080, 8443, 3478/udp, 10001/udp)
+# are bound to. Empty list = bind on all addresses (0.0.0.0 and [::]).
+unifi_docker_bind_addresses: []
 unifi_docker_apt_arch: "amd64"
 unifi_docker_apt_release: "{{ ansible_distribution_release }}"
 unifi_docker_apt_keyring_dir: "/etc/apt/keyrings"

@@ -99,6 +99,7 @@
     owner: "{{ ansible_user_id }}"
     group: "{{ ansible_user_id }}"
     mode: u=rwxr,g=rx,o=x
+  register: unifi_docker_start_script
 
 - name: Pull pinned Unifi image
   become: yes
@@ -139,11 +140,12 @@
       or (unifi_docker_image not in unifi_container_state.stdout)
       or ('running' not in unifi_container_state.stdout)
       or (unifi_legacy_remove.results | selectattr('stdout', 'search', 'removed') | list | length > 0)
+      or unifi_docker_start_script.changed
 
 - name: Wait for Unifi HTTPS port
   become: yes
   wait_for:
-    host: 127.0.0.1
+    host: "{{ unifi_docker_bind_addresses | first | default('127.0.0.1') }}"
     port: 8443
     delay: 5
     timeout: 300
